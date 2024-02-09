@@ -98,7 +98,7 @@ public:
       : C(common), a(common.amp2sh.cols()), s(common.amp2sh.rows()), c(common.amp2sh.rows()) {}
 
   template <class SHImageType, class AmpImageType> void operator()(SHImageType &SH, AmpImageType &amp) {
-    get_amps(amp);
+    get_amps (amp, norm);
     c.noalias() = C.amp2sh * a;
     write_SH(SH);
   }
@@ -108,7 +108,7 @@ public:
   void operator()(SHImageType &SH, AmpImageType &amp, const NoiseImageType &noise) {
     w = Eigen::VectorXd::Ones(C.sh2amp.rows());
 
-    get_amps(amp);
+    get_amps (amp, norm);
     c = C.amp2sh * a;
 
     for (size_t iter = 0; iter < 20; ++iter) {
@@ -119,7 +119,7 @@ public:
         sh2amp.row(n).array() *= w[n];
 
       s.noalias() = sh2amp.transpose() * ap;
-      Q.triangularView<Eigen::Lower>() = sh2amp.transpose() * sh2amp;
+      Q = sh2amp.transpose() * C.sh2amp;
       llt.compute(Q);
       c = llt.solve(s);
     }
@@ -132,26 +132,27 @@ protected:
   Eigen::VectorXd a, s, c, w, ap;
   Eigen::MatrixXd Q, sh2amp;
   Eigen::LLT<Eigen::MatrixXd> llt;
+  double norm = 1.0;
 
-  template <class AmpImageType> void get_amps(AmpImageType &amp) {
-    double norm = 1.0;
+  template <class AmpImageType> void get_amps (AmpImageType& amp, double& norm) {
     if (C.normalise) {
+      norm = 0.0;
       for (size_t n = 0; n < C.bzeros.size(); n++) {
         amp.index(3) = C.bzeros[n];
         norm += amp.value();
       }
-      norm = C.bzeros.size() / norm;
+      norm = norm ? C.bzeros.size() / norm : 1.0;
     }
 
     for (ssize_t n = 0; n < a.size(); n++) {
       amp.index(3) = C.dwis.size() ? C.dwis[n] : n;
-      a[n] = amp.value() * norm;
+      a[n] = amp.value();
     }
   }
 
   template <class SHImageType> void write_SH(SHImageType &SH) {
     for (auto l = Loop(3)(SH); l; ++l)
-      SH.value() = c[SH.index(3)];
+      SH.value() = c[SH.index(3)] * norm;
   }
 
   bool get_rician_bias(const Eigen::MatrixXd &sh2amp, default_type noise) {
